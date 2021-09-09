@@ -28,7 +28,7 @@ public protocol MediaSlideshowDelegate: class {
     @objc optional func mediaSlideshowDidEndDecelerating(_ mediaSlideshow: MediaSlideshow)
 }
 
-/** 
+/**
     Used to represent position of the Page Control
     - hidden: Page Control is hidden
     - insideScrollView: Page Control is inside image slideshow
@@ -71,6 +71,14 @@ open class MediaSlideshow: UIView {
     open var activityIndicator: ActivityIndicatorFactory? {
         didSet {
             reloadScrollView()
+        }
+    }
+    
+    open var circular = true {
+        didSet {
+            if sources.count > 0 {
+                setMediaSources(sources)
+            }
         }
     }
 
@@ -177,6 +185,14 @@ open class MediaSlideshow: UIView {
         }
     }
 
+    /// Image change interval, zero stops the auto-scrolling
+    open var slideshowInterval = 0.0 {
+        didSet {
+            slideshowTimer?.invalidate()
+            slideshowTimer = nil
+            setTimerIfNeeded()
+        }
+    }
     /// Image preload configuration, can be sed to .fixed to enable lazy load or .all
     open var preload = ImagePreload.all
 
@@ -189,6 +205,8 @@ open class MediaSlideshow: UIView {
         }
     }
 
+    fileprivate var slideshowTimer: Timer?
+    fileprivate var scrollViewImages = [MediaSource]()
     fileprivate var isAnimating: Bool = false
 
     /// Transitioning delegate to manage the transition to full screen controller
@@ -242,6 +260,7 @@ open class MediaSlideshow: UIView {
             pageIndicator = UIPageControl()
         }
 
+        setTimerIfNeeded()
         layoutScrollView()
     }
 
@@ -335,6 +354,8 @@ open class MediaSlideshow: UIView {
         reloadScrollView()
         layoutScrollView()
         layoutPageControl()
+        setTimerIfNeeded()
+
     }
 
     // MARK: paging methods
@@ -362,6 +383,24 @@ open class MediaSlideshow: UIView {
             }
         }
     }
+    
+    fileprivate func setTimerIfNeeded() {
+        if slideshowInterval > 0 && scrollViewImages.count > 1 && slideshowTimer == nil {
+            slideshowTimer = Timer.scheduledTimer(timeInterval: slideshowInterval, target: self, selector: #selector(MediaSlideshow.slideshowTick(_:)), userInfo: nil, repeats: true)
+        }
+    }
+    
+    func slideshowTick(_ timer: Timer) {
+        let page = scrollView.frame.size.width > 0 ? Int(scrollView.contentOffset.x / scrollView.frame.size.width) : 0
+        var nextPage = page + 1
+
+        if !circular && page == scrollViewImages.count - 1 {
+            nextPage = 0
+        }
+
+        setScrollViewPage(nextPage, animated: true)
+    }
+
 
     fileprivate func setCurrentPageForScrollViewPage(_ page: Int) {
         if scrollViewPage != page {
@@ -382,6 +421,37 @@ open class MediaSlideshow: UIView {
 
     fileprivate func currentPageForScrollViewPage(_ page: Int) -> Int {
         page
+    }
+    
+    fileprivate func restartTimer() {
+        if slideshowTimer?.isValid != nil {
+            slideshowTimer?.invalidate()
+            slideshowTimer = nil
+        }
+
+        setTimerIfNeeded()
+    }
+    
+    
+    /// Stops slideshow timer
+    open func pauseTimer() {
+        slideshowTimer?.invalidate()
+        slideshowTimer = nil
+    }
+
+    /// Restarts slideshow timer
+    open func unpauseTimer() {
+        setTimerIfNeeded()
+    }
+    
+    @available(*, deprecated, message: "use pauseTimer instead")
+    open func pauseTimerIfNeeded() {
+        pauseTimer()
+    }
+
+    @available(*, deprecated, message: "use unpauseTimer instead")
+    open func unpauseTimerIfNeeded() {
+        unpauseTimer()
     }
 
     /**
