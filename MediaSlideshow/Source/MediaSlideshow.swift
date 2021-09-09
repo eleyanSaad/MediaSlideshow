@@ -264,6 +264,11 @@ open class MediaSlideshow: UIView {
         layoutScrollView()
     }
 
+    open override func removeFromSuperview() {
+        super.removeFromSuperview()
+        pauseTimer()
+    }
+    
     open override func layoutSubviews() {
         super.layoutSubviews()
 
@@ -350,7 +355,27 @@ open class MediaSlideshow: UIView {
      */
     public func setMediaSources(_ sources: [MediaSource]) {
         self.sources = sources
+        
         pageIndicator?.numberOfPages = sources.count
+
+        // in circular mode we add dummy first and last image to enable smooth scrolling
+        if circular && sources.count > 1 {
+            var scImages = [MediaSource]()
+
+            if let last = sources.last {
+                scImages.append(last)
+            }
+            scImages += sources
+            if let first = sources.first {
+                scImages.append(first)
+            }
+
+            scrollViewImages = scImages
+        } else {
+            scrollViewImages = sources
+        }
+        
+        
         reloadScrollView()
         layoutScrollView()
         layoutPageControl()
@@ -366,7 +391,13 @@ open class MediaSlideshow: UIView {
      - parameter animated: true if animate the change
      */
     open func setCurrentPage(_ newPage: Int, animated: Bool) {
-        setScrollViewPage(newPage, animated: animated)
+        var pageOffset = newPage
+        if circular && (scrollViewImages.count > 1) {
+            pageOffset += 1
+        }
+
+        setScrollViewPage(pageOffset, animated: animated)
+        
     }
 
     /**
@@ -420,7 +451,19 @@ open class MediaSlideshow: UIView {
     }
 
     fileprivate func currentPageForScrollViewPage(_ page: Int) -> Int {
-        page
+        if circular {
+            if page == 0 {
+                // first page contains the last image
+                return Int(sources.count) - 1
+            } else if page == scrollViewImages.count - 1 {
+                // last page contains the first image
+                return 0
+            } else {
+                return page - 1
+            }
+        } else {
+            return page
+        }
     }
     
     fileprivate func restartTimer() {
@@ -459,10 +502,15 @@ open class MediaSlideshow: UIView {
      - Parameter animated: true if animate the change
      */
     open func nextPage(animated: Bool) {
+        if !circular && currentPage == sources.count - 1 {
+            return
+        }
         if isAnimating {
             return
         }
+
         setCurrentPage(currentPage + 1, animated: animated)
+        restartTimer()
     }
 
     /**
@@ -470,12 +518,18 @@ open class MediaSlideshow: UIView {
      - Parameter animated: true if animate the change
      */
     open func previousPage(animated: Bool) {
+        if !circular && currentPage == 0 {
+            return
+        }
         if isAnimating {
             return
         }
-        let newPage = scrollViewPage > 0 ? scrollViewPage - 1 : sources.count - 3
+
+        let newPage = scrollViewPage > 0 ? scrollViewPage - 1 : scrollViewImages.count - 3
         setScrollViewPage(newPage, animated: animated)
+        restartTimer()
     }
+
 
     @objc private func pageControlValueChanged() {
         if let currentPage = pageIndicator?.page {
@@ -487,6 +541,7 @@ open class MediaSlideshow: UIView {
 extension MediaSlideshow: UIScrollViewDelegate {
 
     open func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        restartTimer()
         willBeginDragging?()
         delegate?.mediaSlideshowWillBeginDragging?(self)
     }
@@ -496,15 +551,32 @@ extension MediaSlideshow: UIScrollViewDelegate {
         didEndDecelerating?()
         delegate?.mediaSlideshowDidEndDecelerating?(self)
     }
-
+//
+//    open func scrollViewDidScroll(_ scrollView: UIScrollView) {
+//        // Updates the page indicator as the user scrolls (#204). Not called when not dragging to prevent flickers
+//        // when interacting with PageControl directly (#376).
+//        if scrollView.isDragging {
+//            pageIndicator?.page = currentPageForScrollViewPage(primaryVisiblePage)
+//        }
+//    }
     open func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        if circular && (scrollViewImages.count > 1) {
+            let regularContentOffset = scrollView.frame.size.width * CGFloat(sources.count)
+
+            if scrollView.contentOffset.x >= scrollView.frame.size.width * CGFloat(sources.count + 1) {
+                scrollView.contentOffset = CGPoint(x: scrollView.contentOffset.x - regularContentOffset, y: 0)
+            } else if scrollView.contentOffset.x <= 0 {
+                scrollView.contentOffset = CGPoint(x: scrollView.contentOffset.x + regularContentOffset, y: 0)
+            }
+        }
+
         // Updates the page indicator as the user scrolls (#204). Not called when not dragging to prevent flickers
         // when interacting with PageControl directly (#376).
         if scrollView.isDragging {
             pageIndicator?.page = currentPageForScrollViewPage(primaryVisiblePage)
         }
     }
-
+        
     public func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
         isAnimating = false
     }
